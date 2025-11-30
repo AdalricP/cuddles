@@ -8,6 +8,17 @@ import TextOverlayLayer from './TextOverlayLayer';
 import TextTimeline from './TextTimeline';
 import DrawingCanvas from './DrawingCanvas';
 
+// Constants for FFmpeg image overlay processing
+const OVERLAY_FPS = 30;
+const FRAME_BUFFER = 10; // Extra frames to ensure we have enough for the full duration
+
+/**
+ * Calculates the number of loop iterations needed for an image overlay
+ * @param {number} duration - Video duration in seconds
+ * @returns {number} Number of loop iterations
+ */
+const calculateLoopCount = (duration) => Math.ceil(duration * OVERLAY_FPS) + FRAME_BUFFER;
+
 const VideoEditor = forwardRef(({ videoFile, activeTool, onUpload, onClose, onTrim, onDownload }, ref) => {
     const [loaded, setLoaded] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
@@ -577,11 +588,8 @@ const VideoEditor = forwardRef(({ videoFile, activeTool, onUpload, onClose, onTr
 
                 const scaledImg = `[img${layerIndex}]`;
                 // Use finite loop count instead of infinite loop to avoid FFmpeg WASM freeze
-                // Calculate frames needed: duration * fps (using 30fps as reasonable default)
-                // Add a small buffer to ensure we have enough frames
-                const fps = 30;
-                const loopCount = Math.ceil(duration * fps) + 10;
-                filterComplex.push(`[${layerIndex}:v]loop=loop=${loopCount}:size=1:start=0,fps=${fps},scale=${targetWidth}:${targetHeight}:flags=bicubic,format=rgba,setsar=1,setpts=PTS-STARTPTS${scaledImg}`);
+                const loopCount = calculateLoopCount(duration);
+                filterComplex.push(`[${layerIndex}:v]loop=loop=${loopCount}:size=1:start=0,fps=${OVERLAY_FPS},scale=${targetWidth}:${targetHeight}:flags=bicubic,format=rgba,setsar=1,setpts=PTS-STARTPTS${scaledImg}`);
 
                 const x = Math.round(layer.transform.x * scaleX);
                 const y = Math.round(layer.transform.y * scaleY);
@@ -631,10 +639,8 @@ const VideoEditor = forwardRef(({ videoFile, activeTool, onUpload, onClose, onTr
                 const scaledImg = `[txt${layerIndex}]`;
 
                 // Use finite loop count instead of infinite loop to avoid FFmpeg WASM freeze
-                // Calculate frames needed: duration * fps (using 30fps as reasonable default)
-                const fps = 30;
-                const loopCount = Math.ceil(duration * fps) + 10;
-                filterComplex.push(`[${layerIndex}:v]loop=loop=${loopCount}:size=1:start=0,fps=${fps},scale=${targetWidth}:${targetHeight}:flags=bicubic,format=rgba,setsar=1,setpts=PTS-STARTPTS${scaledImg}`);
+                const loopCount = calculateLoopCount(duration);
+                filterComplex.push(`[${layerIndex}:v]loop=loop=${loopCount}:size=1:start=0,fps=${OVERLAY_FPS},scale=${targetWidth}:${targetHeight}:flags=bicubic,format=rgba,setsar=1,setpts=PTS-STARTPTS${scaledImg}`);
 
                 const x = Math.round(layer.transform.x * scaleX);
                 const y = Math.round(layer.transform.y * scaleY);
