@@ -8,6 +8,12 @@ import TextOverlayLayer from './TextOverlayLayer';
 import TextTimeline from './TextTimeline';
 import DrawingCanvas from './DrawingCanvas';
 
+// Resolution presets for export
+const RESOLUTION_TARGETS = {
+    '1080p': { width: 1920, height: 1080 },
+    '720p': { width: 1280, height: 720 }
+};
+
 const VideoEditor = forwardRef(({ videoFile, activeTool, onUpload, onClose, onTrim, onDownload }, ref) => {
     const [loaded, setLoaded] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
@@ -651,20 +657,17 @@ const VideoEditor = forwardRef(({ videoFile, activeTool, onUpload, onClose, onTr
         ];
 
         // Add resolution scaling if not original
-        const resolutionTargets = {
-            '1080p': { width: 1920, height: 1080 },
-            '720p': { width: 1280, height: 720 }
-        };
-
-        const needsScaling = exportResolution !== 'original' && resolutionTargets[exportResolution];
+        const needsScaling = exportResolution !== 'original' && RESOLUTION_TARGETS[exportResolution];
         
         if (needsScaling || filterComplex.length > 0) {
             // If we need scaling, add it to the filter chain
             if (needsScaling) {
-                const target = resolutionTargets[exportResolution];
+                const target = RESOLUTION_TARGETS[exportResolution];
                 const nextStream = '[vscaled]';
-                // Scale with aspect ratio preservation, ensuring even dimensions for H.264
-                filterComplex.push(`${currentStream}scale=${target.width}:${target.height}:force_original_aspect_ratio=decrease,pad=${target.width}:${target.height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1${nextStream}`);
+                // Build scale filter with aspect ratio preservation and padding
+                const scaleFilter = `scale=${target.width}:${target.height}:force_original_aspect_ratio=decrease`;
+                const padFilter = `pad=${target.width}:${target.height}:(ow-iw)/2:(oh-ih)/2:color=black`;
+                filterComplex.push(`${currentStream}${scaleFilter},${padFilter},setsar=1${nextStream}`);
                 currentStream = nextStream;
             }
 
