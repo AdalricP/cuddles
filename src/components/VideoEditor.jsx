@@ -381,6 +381,48 @@ const VideoEditor = forwardRef(({ videoFile, activeTool, onUpload, onClose, onTr
         return `${m}:${s.toString().padStart(2, '0')}`;
     };
 
+    const renderTextToImage = async (layer) => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+
+        // We need to render the text at high resolution to avoid blurriness
+        // The layer.style.fontSize is in screen pixels (relative to the editor view)
+        // We should probably render it at a reasonable scale.
+
+        // Let's use the layer's style properties
+        const fontSize = layer.style.fontSize;
+        const fontFamily = layer.style.fontFamily;
+        const fontWeight = layer.style.fontWeight;
+        const color = layer.style.color;
+
+        // Set font to measure
+        ctx.font = `${fontWeight} ${fontSize}px "${fontFamily}"`;
+
+        // Measure text
+        const textMetrics = ctx.measureText(layer.text);
+        const textWidth = textMetrics.width;
+        const textHeight = fontSize * 1.2; // Approximate height
+
+        // Add some padding
+        const padding = 4; // Match editor padding
+        canvas.width = textWidth + padding * 2;
+        canvas.height = textHeight + padding * 2;
+
+        // Clear and set styles again (resizing clears canvas)
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.font = `${fontWeight} ${fontSize}px "${fontFamily}"`;
+        ctx.fillStyle = color;
+        ctx.textBaseline = 'middle';
+        ctx.textAlign = 'center';
+
+        // Draw text
+        ctx.fillText(layer.text, canvas.width / 2, canvas.height / 2);
+
+        // Return as blob (better for large images) or data URL
+        // FFmpeg fetchFile handles data URLs well
+        return canvas.toDataURL('image/png');
+    };
+
     const transcode = async () => {
         console.log("TRANSCODE");
         if (!videoFile || !loaded) return;
@@ -510,9 +552,8 @@ const VideoEditor = forwardRef(({ videoFile, activeTool, onUpload, onClose, onTr
                 const imgFileName = `layer_${layer.id}.png`;
                 // File already written above? No, let's do it here.
                 await ffmpeg.writeFile(imgFileName, await fetchFile(layer.src));
-                // Add -loop 1 to ensure the image stream is available for the entire video
-                // Removed -t duration from input to avoid potential timestamp race conditions
-                inputs.push('-loop', '1', '-i', imgFileName);
+                // Remove -loop 1 from input, we'll loop in the filter graph
+                inputs.push('-i', imgFileName);
 
                 const layerIndex = inputIndex++;
                 const nextStream = `[v${layerIndex}]`;
@@ -535,9 +576,10 @@ const VideoEditor = forwardRef(({ videoFile, activeTool, onUpload, onClose, onTr
                 const targetHeight = `trunc(ih*${scaleFactorY}/2)*2`;
 
                 const scaledImg = `[img${layerIndex}]`;
-                // Chain scale -> format=rgba -> setsar=1
-                // setsar=1 helps avoid aspect ratio issues with generated streams
-                filterComplex.push(`[${layerIndex}:v]scale=${targetWidth}:${targetHeight}:flags=bicubic,format=rgba,setsar=1${scaledImg}`);
+                // Chain loop -> scale -> format=rgba -> setsar=1 -> trim -> setpts
+                // loop=loop=-1:size=1:start=0 loops the single input frame infinitely
+                // trim=duration=${duration} limits it to video length
+                filterComplex.push(`[${layerIndex}:v]loop=loop=-1:size=1:start=0,scale=${targetWidth}:${targetHeight}:flags=bicubic,format=rgba,setsar=1,trim=duration=${duration},setpts=PTS-STARTPTS${scaledImg}`);
 
                 const x = Math.round(layer.transform.x * scaleX);
                 const y = Math.round(layer.transform.y * scaleY);
@@ -550,29 +592,57 @@ const VideoEditor = forwardRef(({ videoFile, activeTool, onUpload, onClose, onTr
 
 
             } else {
-                // Text Layer
+                // Text Layer - Render to image first to avoid FFmpeg WASM drawtext crashes
+                const textImgData = await renderTextToImage(layer);
+                const imgFileName = `text_layer_${layer.id}.png`;
+
+                await ffmpeg.writeFile(imgFileName, await fetchFile(textImgData));
+                inputs.push('-i', imgFileName);
+
+                const layerIndex = inputIndex++;
+                const nextStream = `[v${layerIndex}]`;
+
+                // Scale logic for text-as-image
+                // The canvas created in renderTextToImage should be sized to the text content
+                // We need to place it correctly.
+                // Note: renderTextToImage returns a data URL or blob. 
+                // We assume the canvas was created with the exact dimensions of the text or a bounding box.
+
+                // For simplicity, let's assume renderTextToImage returns an image that needs to be scaled 
+                // similarly to how we scale the video/display ratio.
+
+                // However, since we draw the text at a specific pixel size on the canvas, 
+                // we might need to adjust the scale.
+                // Let's look at renderTextToImage implementation (below).
+
+                // If renderTextToImage creates a canvas matching the visual size of the text on screen,
+                // then we just need to scale it by (scaleX, scaleY).
+
+                const scaleFactorX = layer.transform.scale[0] * scaleX;
+                const scaleFactorY = layer.transform.scale[1] * scaleY;
+
+                // Ensure dimensions are even
+                const targetWidth = `trunc(iw*${scaleFactorX}/2)*2`;
+                const targetHeight = `trunc(ih*${scaleFactorY}/2)*2`;
+
+                const scaledImg = `[txt${layerIndex}]`;
+
+                // Chain loop -> scale -> format=rgba -> setsar=1 -> trim -> setpts
+                filterComplex.push(`[${layerIndex}:v]loop=loop=-1:size=1:start=0,scale=${targetWidth}:${targetHeight}:flags=bicubic,format=rgba,setsar=1,trim=duration=${duration},setpts=PTS-STARTPTS${scaledImg}`);
+
                 const x = Math.round(layer.transform.x * scaleX);
                 const y = Math.round(layer.transform.y * scaleY);
-                const fontSize = Math.round(layer.style.fontSize * scaleY);
-                const fontColor = 'white';
 
-                // Escape text for FFmpeg - only escape single quotes and backslashes
-                const escapedText = layer.text.replace(/\\/g, '\\\\').replace(/'/g, "'\\''");
+                console.log(`Layer ${i} (Text->Image): start=${start}, end=${end}, x=${x}, y=${y}`);
 
-                console.log(`Layer ${i} (Text): start=${start}, end=${end}, x=${x}, y=${y}, fontSize=${fontSize}, text=${layer.text}`);
-
-                // Drawtext is a simple filter in the chain
-                const nextStream = `[v_txt_${i}]`;
-
-                // Use simple inline text with minimal escaping
-                // Use the exact font path we wrote to the WASM filesystem (no quotes on path)
-                filterComplex.push(`${currentStream}drawtext=fontfile=/usr/share/fonts/truetype/ClashDisplay-Semibold.ttf:text='${escapedText}':x=${x}:y=${y}:fontsize=${fontSize}:fontcolor=${fontColor}${nextStream}`);
+                // Use overlay filter instead of drawtext
+                filterComplex.push(`${currentStream}${scaledImg}overlay=x=${x}:y=${y}${nextStream}`);
                 currentStream = nextStream;
             }
         }
 
         const args = [
-            '-threads', '0',
+            '-threads', '1', // Single thread for WASM stability
             '-ss', startTime.toString(),
             '-i', inputName,
             ...inputs,
@@ -589,8 +659,7 @@ const VideoEditor = forwardRef(({ videoFile, activeTool, onUpload, onClose, onTr
 
             args.push('-c:v', 'libx264'); // Explicit encoder
             args.push('-c:a', 'copy');
-            args.push('-preset', 'ultrafast');
-            args.push('-tune', 'zerolatency');
+            args.push('-preset', 'veryfast'); // More stable than ultrafast in WASM
         } else {
             args.push('-c', 'copy');
         }
