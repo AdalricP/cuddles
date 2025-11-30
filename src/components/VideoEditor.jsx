@@ -8,17 +8,6 @@ import TextOverlayLayer from './TextOverlayLayer';
 import TextTimeline from './TextTimeline';
 import DrawingCanvas from './DrawingCanvas';
 
-// Constants for FFmpeg image overlay processing
-const OVERLAY_FPS = 30;
-const FRAME_BUFFER = 10; // Extra frames to ensure we have enough for the full duration
-
-/**
- * Calculates the number of loop iterations needed for an image overlay
- * @param {number} duration - Video duration in seconds
- * @returns {number} Number of loop iterations
- */
-const calculateLoopCount = (duration) => Math.ceil(duration * OVERLAY_FPS) + FRAME_BUFFER;
-
 const VideoEditor = forwardRef(({ videoFile, activeTool, onUpload, onClose, onTrim, onDownload }, ref) => {
     const [loaded, setLoaded] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
@@ -587,9 +576,10 @@ const VideoEditor = forwardRef(({ videoFile, activeTool, onUpload, onClose, onTr
                 const targetHeight = `trunc(ih*${scaleFactorY}/2)*2`;
 
                 const scaledImg = `[img${layerIndex}]`;
-                // Use finite loop count instead of infinite loop to avoid FFmpeg WASM freeze
-                const loopCount = calculateLoopCount(duration);
-                filterComplex.push(`[${layerIndex}:v]loop=loop=${loopCount}:size=1:start=0,fps=${OVERLAY_FPS},scale=${targetWidth}:${targetHeight}:flags=bicubic,format=rgba,setsar=1,setpts=PTS-STARTPTS${scaledImg}`);
+                // Chain loop -> scale -> format=rgba -> setsar=1 -> trim -> setpts
+                // loop=loop=-1:size=1:start=0 loops the single input frame infinitely
+                // trim=duration=${duration} limits it to video length
+                filterComplex.push(`[${layerIndex}:v]loop=loop=-1:size=1:start=0,scale=${targetWidth}:${targetHeight}:flags=bicubic,format=rgba,setsar=1,trim=duration=${duration},setpts=PTS-STARTPTS${scaledImg}`);
 
                 const x = Math.round(layer.transform.x * scaleX);
                 const y = Math.round(layer.transform.y * scaleY);
@@ -597,8 +587,7 @@ const VideoEditor = forwardRef(({ videoFile, activeTool, onUpload, onClose, onTr
                 console.log(`Layer ${i} (Image): start=${start}, end=${end}, x=${x}, y=${y}, scaleX=${scaleFactorX}, scaleY=${scaleFactorY}`);
 
                 // Note: removed enable parameter as it causes WASM crashes
-                // Use shortest=1 to end overlay when main video stream ends
-                filterComplex.push(`${currentStream}${scaledImg}overlay=x=${x}:y=${y}:shortest=1${nextStream}`);
+                filterComplex.push(`${currentStream}${scaledImg}overlay=x=${x}:y=${y}${nextStream}`);
                 currentStream = nextStream;
 
 
@@ -638,9 +627,8 @@ const VideoEditor = forwardRef(({ videoFile, activeTool, onUpload, onClose, onTr
 
                 const scaledImg = `[txt${layerIndex}]`;
 
-                // Use finite loop count instead of infinite loop to avoid FFmpeg WASM freeze
-                const loopCount = calculateLoopCount(duration);
-                filterComplex.push(`[${layerIndex}:v]loop=loop=${loopCount}:size=1:start=0,fps=${OVERLAY_FPS},scale=${targetWidth}:${targetHeight}:flags=bicubic,format=rgba,setsar=1,setpts=PTS-STARTPTS${scaledImg}`);
+                // Chain loop -> scale -> format=rgba -> setsar=1 -> trim -> setpts
+                filterComplex.push(`[${layerIndex}:v]loop=loop=-1:size=1:start=0,scale=${targetWidth}:${targetHeight}:flags=bicubic,format=rgba,setsar=1,trim=duration=${duration},setpts=PTS-STARTPTS${scaledImg}`);
 
                 const x = Math.round(layer.transform.x * scaleX);
                 const y = Math.round(layer.transform.y * scaleY);
@@ -648,8 +636,7 @@ const VideoEditor = forwardRef(({ videoFile, activeTool, onUpload, onClose, onTr
                 console.log(`Layer ${i} (Text->Image): start=${start}, end=${end}, x=${x}, y=${y}`);
 
                 // Use overlay filter instead of drawtext
-                // Use shortest=1 to end overlay when main video stream ends
-                filterComplex.push(`${currentStream}${scaledImg}overlay=x=${x}:y=${y}:shortest=1${nextStream}`);
+                filterComplex.push(`${currentStream}${scaledImg}overlay=x=${x}:y=${y}${nextStream}`);
                 currentStream = nextStream;
             }
         }
