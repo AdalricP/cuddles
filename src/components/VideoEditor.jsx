@@ -22,6 +22,7 @@ const VideoEditor = forwardRef(({ videoFile, activeTool, onUpload, onClose, onTr
     const [isDrawing, setIsDrawing] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
     const [exportProgress, setExportProgress] = useState(0);
+    const [exportResolution, setExportResolution] = useState('original'); // 'original', '1080p', '720p'
 
     // Text Feature State
     const [textLayers, setTextLayers] = useState([]);
@@ -649,7 +650,24 @@ const VideoEditor = forwardRef(({ videoFile, activeTool, onUpload, onClose, onTr
             '-t', duration.toString()
         ];
 
-        if (filterComplex.length > 0) {
+        // Add resolution scaling if not original
+        const resolutionTargets = {
+            '1080p': { width: 1920, height: 1080 },
+            '720p': { width: 1280, height: 720 }
+        };
+
+        const needsScaling = exportResolution !== 'original' && resolutionTargets[exportResolution];
+        
+        if (needsScaling || filterComplex.length > 0) {
+            // If we need scaling, add it to the filter chain
+            if (needsScaling) {
+                const target = resolutionTargets[exportResolution];
+                const nextStream = '[vscaled]';
+                // Scale with aspect ratio preservation, ensuring even dimensions for H.264
+                filterComplex.push(`${currentStream}scale=${target.width}:${target.height}:force_original_aspect_ratio=decrease,pad=${target.width}:${target.height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1${nextStream}`);
+                currentStream = nextStream;
+            }
+
             const complexFilterStr = filterComplex.join(';');
             console.log('Generated Filter Complex:', complexFilterStr);
             // Map the final stream to output
@@ -896,6 +914,20 @@ const VideoEditor = forwardRef(({ videoFile, activeTool, onUpload, onClose, onTr
                                 </svg>
                             </button>
                             <div className="hotkey-badge">S</div>
+                        </div>
+
+                        {/* Resolution Selector (Below Save) */}
+                        <div className="tool-wrapper top-left-5">
+                            <select
+                                className="resolution-select"
+                                value={exportResolution}
+                                onChange={(e) => setExportResolution(e.target.value)}
+                                title="Export Resolution"
+                            >
+                                <option value="original">Original</option>
+                                <option value="1080p">1080p</option>
+                                <option value="720p">720p</option>
+                            </select>
                         </div>
 
 
