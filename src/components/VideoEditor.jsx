@@ -659,13 +659,12 @@ const VideoEditor = forwardRef(({ videoFile, activeTool, onUpload, onClose, onTr
         // Add resolution scaling if not original
         const needsScaling = exportResolution !== 'original' && RESOLUTION_TARGETS[exportResolution];
         
-        if (needsScaling || filterComplex.length > 0) {
-            // If we need scaling, add it to the filter chain
+        if (filterComplex.length > 0) {
+            // If we have overlays, use filter_complex
+            // Add scaling at the end if needed
             if (needsScaling) {
                 const target = RESOLUTION_TARGETS[exportResolution];
                 const nextStream = '[vscaled]';
-                // Use simple scale filter: scale to target width, auto-calculate height to maintain aspect ratio
-                // Then ensure even dimensions for H.264 compatibility
                 const scaleFilter = `scale=${target.width}:-2`;
                 filterComplex.push(`${currentStream}${scaleFilter}${nextStream}`);
                 currentStream = nextStream;
@@ -673,15 +672,22 @@ const VideoEditor = forwardRef(({ videoFile, activeTool, onUpload, onClose, onTr
 
             const complexFilterStr = filterComplex.join(';');
             console.log('Generated Filter Complex:', complexFilterStr);
-            // Map the final stream to output
             args.push('-filter_complex', complexFilterStr);
             args.push('-map', currentStream);
-            args.push('-map', '0:a'); // Map audio from original video (0)
+            args.push('-map', '0:a');
 
-            args.push('-c:v', 'libx264'); // Explicit encoder
+            args.push('-c:v', 'libx264');
             args.push('-c:a', 'copy');
-            args.push('-preset', 'veryfast'); // More stable than ultrafast in WASM
+            args.push('-preset', 'veryfast');
+        } else if (needsScaling) {
+            // No overlays but need scaling - use simple -vf filter
+            const target = RESOLUTION_TARGETS[exportResolution];
+            args.push('-vf', `scale=${target.width}:-2`);
+            args.push('-c:v', 'libx264');
+            args.push('-c:a', 'copy');
+            args.push('-preset', 'veryfast');
         } else {
+            // No overlays, no scaling - just copy
             args.push('-c', 'copy');
         }
 
