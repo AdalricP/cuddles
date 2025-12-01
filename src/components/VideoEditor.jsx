@@ -8,12 +8,6 @@ import TextOverlayLayer from './TextOverlayLayer';
 import TextTimeline from './TextTimeline';
 import DrawingCanvas from './DrawingCanvas';
 
-// Resolution presets for export
-const RESOLUTION_TARGETS = {
-    '1080p': { width: 1920, height: 1080 },
-    '720p': { width: 1280, height: 720 }
-};
-
 const VideoEditor = forwardRef(({ videoFile, activeTool, onUpload, onClose, onTrim, onDownload }, ref) => {
     const [loaded, setLoaded] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
@@ -28,7 +22,6 @@ const VideoEditor = forwardRef(({ videoFile, activeTool, onUpload, onClose, onTr
     const [isDrawing, setIsDrawing] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
     const [exportProgress, setExportProgress] = useState(0);
-    const [exportResolution, setExportResolution] = useState('original'); // 'original', '1080p', '720p'
 
     // Text Feature State
     const [textLayers, setTextLayers] = useState([]);
@@ -656,38 +649,18 @@ const VideoEditor = forwardRef(({ videoFile, activeTool, onUpload, onClose, onTr
             '-t', duration.toString()
         ];
 
-        // Add resolution scaling if not original
-        const needsScaling = exportResolution !== 'original' && RESOLUTION_TARGETS[exportResolution];
-        
         if (filterComplex.length > 0) {
-            // If we have overlays, use filter_complex
-            // Add scaling at the end if needed
-            if (needsScaling) {
-                const target = RESOLUTION_TARGETS[exportResolution];
-                const nextStream = '[vscaled]';
-                const scaleFilter = `scale=${target.width}:-2`;
-                filterComplex.push(`${currentStream}${scaleFilter}${nextStream}`);
-                currentStream = nextStream;
-            }
-
             const complexFilterStr = filterComplex.join(';');
             console.log('Generated Filter Complex:', complexFilterStr);
+            // Map the final stream to output
             args.push('-filter_complex', complexFilterStr);
             args.push('-map', currentStream);
-            args.push('-map', '0:a');
+            args.push('-map', '0:a'); // Map audio from original video (0)
 
-            args.push('-c:v', 'libx264');
+            args.push('-c:v', 'libx264'); // Explicit encoder
             args.push('-c:a', 'copy');
-            args.push('-preset', 'veryfast');
-        } else if (needsScaling) {
-            // No overlays but need scaling - use simple -vf filter
-            const target = RESOLUTION_TARGETS[exportResolution];
-            args.push('-vf', `scale=${target.width}:-2`);
-            args.push('-c:v', 'libx264');
-            args.push('-c:a', 'copy');
-            args.push('-preset', 'veryfast');
+            args.push('-preset', 'veryfast'); // More stable than ultrafast in WASM
         } else {
-            // No overlays, no scaling - just copy
             args.push('-c', 'copy');
         }
 
@@ -923,20 +896,6 @@ const VideoEditor = forwardRef(({ videoFile, activeTool, onUpload, onClose, onTr
                                 </svg>
                             </button>
                             <div className="hotkey-badge">S</div>
-                        </div>
-
-                        {/* Resolution Selector (Below Save) */}
-                        <div className="tool-wrapper top-left-5">
-                            <select
-                                className="resolution-select"
-                                value={exportResolution}
-                                onChange={(e) => setExportResolution(e.target.value)}
-                                title="Export Resolution"
-                            >
-                                <option value="original">Original</option>
-                                <option value="1080p">1080p</option>
-                                <option value="720p">720p</option>
-                            </select>
                         </div>
 
 

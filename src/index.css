@@ -488,11 +488,6 @@ button {
     left: 1rem;
 }
 
-.tool-wrapper.top-left-5 {
-    top: 13rem;
-    left: 1rem;
-}
-
 .tool-wrapper.top-right {
     top: 1rem;
     right: 1rem;
@@ -784,40 +779,4 @@ button {
     color: #60a5fa !important;
     /* Light blue (Tailwind blue-400 equivalent) */
     background: rgba(96, 165, 250, 0.1) !important;
-}
-
-/* Resolution Selector */
-.resolution-select {
-    background: #222;
-    color: #888;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 4px;
-    padding: 8px 12px;
-    font-size: 12px;
-    font-family: 'Clash Display', sans-serif;
-    cursor: pointer;
-    transition: all 0.2s;
-    appearance: none;
-    -webkit-appearance: none;
-    -moz-appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 8px center;
-    padding-right: 28px;
-}
-
-.resolution-select:hover {
-    color: white;
-    background-color: #333;
-    border-color: rgba(255, 255, 255, 0.3);
-}
-
-.resolution-select:focus {
-    outline: none;
-    border-color: var(--accent);
-}
-
-.resolution-select option {
-    background: #222;
-    color: #888;
 }
