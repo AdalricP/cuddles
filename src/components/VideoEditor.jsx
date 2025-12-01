@@ -664,10 +664,10 @@ const VideoEditor = forwardRef(({ videoFile, activeTool, onUpload, onClose, onTr
             if (needsScaling) {
                 const target = RESOLUTION_TARGETS[exportResolution];
                 const nextStream = '[vscaled]';
-                // Build scale filter with aspect ratio preservation and padding
-                const scaleFilter = `scale=${target.width}:${target.height}:force_original_aspect_ratio=decrease`;
-                const padFilter = `pad=${target.width}:${target.height}:(ow-iw)/2:(oh-ih)/2:color=black`;
-                filterComplex.push(`${currentStream}${scaleFilter},${padFilter},setsar=1${nextStream}`);
+                // Use simple scale filter: scale to target width, auto-calculate height to maintain aspect ratio
+                // Then ensure even dimensions for H.264 compatibility
+                const scaleFilter = `scale=${target.width}:-2`;
+                filterComplex.push(`${currentStream}${scaleFilter}${nextStream}`);
                 currentStream = nextStream;
             }
 
