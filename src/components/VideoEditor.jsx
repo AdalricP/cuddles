@@ -7,6 +7,8 @@ import trimIcon from '../assets/trim.png';
 import TextOverlayLayer from './TextOverlayLayer';
 import TextTimeline from './TextTimeline';
 import DrawingCanvas from './DrawingCanvas';
+import { getExportMethod, getUnsupportedMessage, EXPORT_METHODS } from '../utils/exportRouter';
+import { exportWithWebCodecs } from '../utils/webcodecsExporter';
 
 const VideoEditor = forwardRef(({ videoFile, activeTool, onUpload, onClose, onTrim, onDownload }, ref) => {
     const [loaded, setLoaded] = useState(false);
@@ -22,6 +24,7 @@ const VideoEditor = forwardRef(({ videoFile, activeTool, onUpload, onClose, onTr
     const [isDrawing, setIsDrawing] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
     const [exportProgress, setExportProgress] = useState(0);
+    const [browserWarning, setBrowserWarning] = useState(null);
 
     // Text Feature State
     const [textLayers, setTextLayers] = useState([]);
@@ -423,7 +426,104 @@ const VideoEditor = forwardRef(({ videoFile, activeTool, onUpload, onClose, onTr
         return canvas.toDataURL('image/png');
     };
 
+    // Calculate finite loop count to avoid infinite loop in FFmpeg WASM
+    // The loop=-1 (infinite) combined with trim causes timestamp corruption
+    const calculateLoopCount = (durationInSeconds, videoFps = 30) => {
+        const exactFrames = durationInSeconds * videoFps;
+        // Round up and add 1 as safety buffer to prevent frame cutoff
+        return Math.ceil(exactFrames) + 1;
+    };
+
+    /**
+     * Main transcode router - determines export method and routes appropriately
+     */
     const transcode = async () => {
+        console.log("TRANSCODE");
+        if (!videoFile || !loaded) return;
+
+        // Determine export method based on browser capabilities and requirements
+        const exportMethod = getExportMethod({ textLayers });
+
+        console.log('Export method:', exportMethod);
+
+        switch (exportMethod) {
+            case EXPORT_METHODS.WEBCODECS:
+                await transcodeWithWebCodecs();
+                break;
+            case EXPORT_METHODS.UNSUPPORTED:
+                setBrowserWarning(getUnsupportedMessage());
+                return;
+            case EXPORT_METHODS.FFMPEG:
+            default:
+                await transcodeWithFFmpeg();
+                break;
+        }
+    };
+
+    /**
+     * Export using WebCodecs API (for Chrome/Edge with overlays)
+     */
+    const transcodeWithWebCodecs = async () => {
+        console.log("TRANSCODE WITH WEBCODECS");
+        if (!videoFile) return;
+
+        setIsExporting(true);
+        setExportProgress(0);
+        setMessage('Preparing export...');
+
+        try {
+            // Get display dimensions for coordinate scaling
+            const video = videoRef.current;
+            const displayWidth = videoDimensions.width || video?.clientWidth || video?.videoWidth;
+            const displayHeight = videoDimensions.height || video?.clientHeight || video?.videoHeight;
+
+            const blob = await exportWithWebCodecs({
+                videoFile,
+                startTime,
+                endTime: endTime || undefined,
+                overlays: textLayers,
+                displayWidth,
+                displayHeight,
+                onProgress: (progress) => {
+                    setExportProgress(Math.round(progress * 100));
+                },
+                onLog: (msg) => {
+                    console.log('[WebCodecs]', msg);
+                    setMessage(msg);
+                }
+            });
+
+            // Download the result
+            // MP4Box saves with weird filename, so we create a proper download
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `cuddles_export_${Date.now()}.mp4`;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+
+            // Cleanup
+            setTimeout(() => {
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }, 100);
+
+            setMessage('Export complete! Video downloaded.');
+        } catch (error) {
+            console.error('WebCodecs export error:', error);
+            setMessage('Export failed: ' + error.message);
+            alert('Export failed: ' + error.message);
+        } finally {
+            setIsExporting(false);
+            setExportProgress(0);
+        }
+    };
+
+    /**
+     * Export using FFmpeg WASM (for trim-only or fallback)
+     */
+    const transcodeWithFFmpeg = async () => {
         console.log("TRANSCODE");
         if (!videoFile || !loaded) return;
 
@@ -552,8 +652,9 @@ const VideoEditor = forwardRef(({ videoFile, activeTool, onUpload, onClose, onTr
                 const imgFileName = `layer_${layer.id}.png`;
                 // File already written above? No, let's do it here.
                 await ffmpeg.writeFile(imgFileName, await fetchFile(layer.src));
-                // Remove -loop 1 from input, we'll loop in the filter graph
-                inputs.push('-i', imgFileName);
+                // Use -loop 1 input flag with -t duration instead of loop filter
+                // The loop filter has issues in FFmpeg WASM even with finite counts
+                inputs.push('-loop', '1', '-t', duration.toString(), '-i', imgFileName);
 
                 const layerIndex = inputIndex++;
                 const nextStream = `[v${layerIndex}]`;
@@ -576,10 +677,8 @@ const VideoEditor = forwardRef(({ videoFile, activeTool, onUpload, onClose, onTr
                 const targetHeight = `trunc(ih*${scaleFactorY}/2)*2`;
 
                 const scaledImg = `[img${layerIndex}]`;
-                // Chain loop -> scale -> format=rgba -> setsar=1 -> trim -> setpts
-                // loop=loop=-1:size=1:start=0 loops the single input frame infinitely
-                // trim=duration=${duration} limits it to video length
-                filterComplex.push(`[${layerIndex}:v]loop=loop=-1:size=1:start=0,scale=${targetWidth}:${targetHeight}:flags=bicubic,format=rgba,setsar=1,trim=duration=${duration},setpts=PTS-STARTPTS${scaledImg}`);
+                // Scale -> format=rgba -> setsar=1 -> setpts (no loop filter needed, using -loop 1 input instead)
+                filterComplex.push(`[${layerIndex}:v]scale=${targetWidth}:${targetHeight}:flags=bicubic,format=rgba,setsar=1,setpts=PTS-STARTPTS${scaledImg}`);
 
                 const x = Math.round(layer.transform.x * scaleX);
                 const y = Math.round(layer.transform.y * scaleY);
@@ -597,7 +696,9 @@ const VideoEditor = forwardRef(({ videoFile, activeTool, onUpload, onClose, onTr
                 const imgFileName = `text_layer_${layer.id}.png`;
 
                 await ffmpeg.writeFile(imgFileName, await fetchFile(textImgData));
-                inputs.push('-i', imgFileName);
+                // Use -loop 1 input flag with -t duration instead of loop filter
+                // The loop filter has issues in FFmpeg WASM even with finite counts
+                inputs.push('-loop', '1', '-t', duration.toString(), '-i', imgFileName);
 
                 const layerIndex = inputIndex++;
                 const nextStream = `[v${layerIndex}]`;
@@ -605,13 +706,13 @@ const VideoEditor = forwardRef(({ videoFile, activeTool, onUpload, onClose, onTr
                 // Scale logic for text-as-image
                 // The canvas created in renderTextToImage should be sized to the text content
                 // We need to place it correctly.
-                // Note: renderTextToImage returns a data URL or blob. 
+                // Note: renderTextToImage returns a data URL or blob.
                 // We assume the canvas was created with the exact dimensions of the text or a bounding box.
 
-                // For simplicity, let's assume renderTextToImage returns an image that needs to be scaled 
+                // For simplicity, let's assume renderTextToImage returns an image that needs to be scaled
                 // similarly to how we scale the video/display ratio.
 
-                // However, since we draw the text at a specific pixel size on the canvas, 
+                // However, since we draw the text at a specific pixel size on the canvas,
                 // we might need to adjust the scale.
                 // Let's look at renderTextToImage implementation (below).
 
@@ -626,9 +727,8 @@ const VideoEditor = forwardRef(({ videoFile, activeTool, onUpload, onClose, onTr
                 const targetHeight = `trunc(ih*${scaleFactorY}/2)*2`;
 
                 const scaledImg = `[txt${layerIndex}]`;
-
-                // Chain loop -> scale -> format=rgba -> setsar=1 -> trim -> setpts
-                filterComplex.push(`[${layerIndex}:v]loop=loop=-1:size=1:start=0,scale=${targetWidth}:${targetHeight}:flags=bicubic,format=rgba,setsar=1,trim=duration=${duration},setpts=PTS-STARTPTS${scaledImg}`);
+                // Scale -> format=rgba -> setsar=1 -> setpts (no loop filter needed, using -loop 1 input instead)
+                filterComplex.push(`[${layerIndex}:v]scale=${targetWidth}:${targetHeight}:flags=bicubic,format=rgba,setsar=1,setpts=PTS-STARTPTS${scaledImg}`);
 
                 const x = Math.round(layer.transform.x * scaleX);
                 const y = Math.round(layer.transform.y * scaleY);
@@ -909,6 +1009,40 @@ const VideoEditor = forwardRef(({ videoFile, activeTool, onUpload, onClose, onTr
                                         style={{ width: `${exportProgress}%` }}
                                     />
                                 </div>
+                            </div>
+                        )}
+
+                        {/* Browser Warning for WebCodecs */}
+                        {browserWarning && (
+                            <div className="browser-warning-notification" style={{
+                                position: 'absolute',
+                                top: '100px',
+                                left: '50%',
+                                transform: 'translateX(-50%)',
+                                backgroundColor: '#ff4444',
+                                color: 'white',
+                                padding: '1rem 1.5rem',
+                                borderRadius: '8px',
+                                zIndex: 1000,
+                                maxWidth: '400px',
+                                textAlign: 'center',
+                                boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
+                            }}>
+                                <p style={{ margin: 0, marginBottom: '0.5rem' }}>{browserWarning}</p>
+                                <button
+                                    onClick={() => setBrowserWarning(null)}
+                                    style={{
+                                        backgroundColor: 'white',
+                                        color: '#ff4444',
+                                        border: 'none',
+                                        padding: '0.25rem 1rem',
+                                        borderRadius: '4px',
+                                        cursor: 'pointer',
+                                        fontWeight: '600'
+                                    }}
+                                >
+                                    Got it
+                                </button>
                             </div>
                         )}
 
