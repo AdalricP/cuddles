@@ -7,7 +7,6 @@ function Sidebar({ onUpload, onTrim, onDownload, activeTool }) {
     const isEditor = location.pathname === '/';
     const [isPlaying, setIsPlaying] = useState(false);
     const [volume, setVolume] = useState(0.5);
-    const [isCopied, setIsCopied] = useState(false);
     const audioRef = useRef(null);
 
     useEffect(() => {
@@ -26,25 +25,11 @@ function Sidebar({ onUpload, onTrim, onDownload, activeTool }) {
     };
 
     const handleShare = async () => {
-        if (navigator.share) {
-            try {
-                await navigator.share({
-                    title: 'cuddles',
-                    text: 'Check out cuddles - a lightweight browser video editor!',
-                    url: window.location.origin,
-                });
-            } catch (err) {
-                console.log('Error sharing:', err);
-            }
-        } else {
-            try {
-                await navigator.clipboard.writeText(window.location.origin);
-                setIsCopied(true);
-                setTimeout(() => setIsCopied(false), 2000);
-            } catch (err) {
-                console.error('Failed to copy:', err);
-            }
-        }
+        const tweetText = encodeURIComponent('Found this really nice website by @AdalricP which lets you edit videos locally on your browser :)\n\nbit slow but really cool for quick edits since you don\'t have to go through the hassle of logging in and giving away all your datas');
+        const tweetUrl = `https://cuddles.arypa.in`;
+        const twitterUrl = `https://x.com/intent/tweet?text=${tweetText}&url=${encodeURIComponent(tweetUrl)}`;
+
+        window.open(twitterUrl, '_blank', 'width=550,height=420');
     };
 
     return (
@@ -55,23 +40,13 @@ function Sidebar({ onUpload, onTrim, onDownload, activeTool }) {
             <button
                 onClick={handleShare}
                 className="sidebar-item share-btn"
-                title={isCopied ? "Copied!" : "Share"}
+                title="Share on X"
                 style={{ position: 'absolute', left: '2rem' }}
             >
                 <div className="icon-container">
-                    {isCopied ? (
-                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
-                            <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                    ) : (
-                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <circle cx="18" cy="5" r="3" />
-                            <circle cx="6" cy="12" r="3" />
-                            <circle cx="18" cy="19" r="3" />
-                            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
-                            <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
-                        </svg>
-                    )}
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                        <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+                    </svg>
                 </div>
             </button>
 

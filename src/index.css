@@ -168,22 +168,51 @@ button {
     transform: scale(1.05);
 }
 
-.donate-btn:hover::after {
-    content: "doesn't work :(";
+.donate-btn {
+    position: relative;
+}
+
+.donate-btn::before {
+    content: "";
     position: absolute;
     bottom: 100%;
     left: 50%;
-    transform: translateX(-50%);
-    background: #222;
-    color: #ff69b4;
-    padding: 4px 8px;
-    border-radius: 4px;
-    font-size: 10px;
-    white-space: nowrap;
+    transform: translateX(-50%) scale(0);
+    width: 350px;
+    height: 350px;
+    background: #000;
+    border-radius: 12px;
+    padding: 12px;
+    margin-bottom: 16px;
+    border: 2px solid rgba(255, 105, 180, 0.5);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
     pointer-events: none;
-    margin-bottom: 8px;
-    border: 1px solid rgba(255, 105, 180, 0.3);
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    transition: transform 0.2s ease;
+    z-index: 1000;
+}
+
+.donate-btn::after {
+    content: "";
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%) scale(0);
+    width: 326px;
+    height: 326px;
+    background-image: url('/donate_qr.png');
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    pointer-events: none;
+    transition: transform 0.2s ease;
+    z-index: 1001;
+    filter: invert(1);
+    margin-bottom: 28px;
+}
+
+.donate-btn:hover::before,
+.donate-btn:hover::after {
+    transform: translateX(-50%) scale(1);
 }
 
 .sidebar-item.active {

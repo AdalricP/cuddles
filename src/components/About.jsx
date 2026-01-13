@@ -33,7 +33,7 @@ function About() {
                     <section>
                         <h2>privacy first</h2>
                         <p>
-                            everything happens locally on your device using <strong>ffmpeg.wasm</strong>. Your videos are never uploaded to any server, ensuring complete privacy and security. This does mean the processing is quite slow right now, it'll take a while, sorry! I'm working on fixing that.
+                            everything happens locally on your device using <strong>ffmpeg.wasm</strong> and <strong>WebCodecs</strong>. Your videos are never uploaded to any server, ensuring complete privacy and security. This does mean the processing is quite slow right now, it'll take a while, sorry! I'm working on fixing that.
                         </p>
                     </section>
 
