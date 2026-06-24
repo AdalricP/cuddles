@@ -26,7 +26,7 @@ function Sidebar({ onUpload, onTrim, onDownload, activeTool }) {
 
     const handleShare = async () => {
         const tweetText = encodeURIComponent('Found this really nice website by @AdalricP which lets you edit videos locally on your browser :)\n\nbit slow but really cool for quick edits since you don\'t have to go through the hassle of logging in and giving away all your datas');
-        const tweetUrl = `https://cuddles.arypa.in`;
+        const tweetUrl = `https://meeooww.xyz`;
         const twitterUrl = `https://x.com/intent/tweet?text=${tweetText}&url=${encodeURIComponent(tweetUrl)}`;
 
         window.open(twitterUrl, '_blank', 'width=550,height=420');
